@@ -1,0 +1,988 @@
+
+#include <Adafruit_Fingerprint.h>
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h>
+
+// Set the LCD address to 0x27 for a 16 chars and 2 line display
+LiquidCrystal_I2C lcd(0x3F, 16, 2);
+#include<SoftwareSerial.h>
+
+#include "TinyGPS++.h"
+
+TinyGPSPlus gps;
+
+SoftwareSerial mySerial(11,10);
+
+const int RED_LED = 12;
+const int GREEN_LED = 13;
+
+const int ON_OFF_Switch = 4;
+const int Emergency_SW = 9;
+
+const int Gas_Sensor = 5;
+const int Alcohol_sensor = 6;
+const int Fire_sensor = 7;
+const int Shock_sensor = 8;
+
+const int SW_1 = A3;
+const int SW_2 = A2;
+const int SW_3 = A1;
+const int Speed_sensor = A0;
+int Speed_sensor_value=0;
+
+boolean Gas = false;
+boolean Alcohol = false;
+boolean Accident = false;
+boolean Fire = false;
+boolean Emergency = false;
+boolean Shock = false;
+boolean engine_start=false;
+
+String SM_ARU_LAT;
+Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
+
+int getFingerprintEnroll(int id);
+int getFingerprintID();
+
+void f_enroll();
+void f_erase();
+int enroll=0,normal=0;
+int FINGERPRINT_NOT_FOUND=0,CONTROL=0;
+
+int e = 0;
+int i=0;
+int buttonState_1=1,buttonState_2=1,buttonState_3=1,buttonState_4=1;
+
+
+void setup()
+{
+  Serial.begin(9600);
+  mySerial.begin(9600);
+
+  Serial.println("SM_ARU...");
+  pinMode(RED_LED, OUTPUT);
+  pinMode(GREEN_LED, OUTPUT);
+
+  pinMode(Gas_Sensor, INPUT);
+  pinMode(Alcohol_sensor, INPUT);
+  pinMode(Fire_sensor, INPUT);
+  pinMode(Shock_sensor, INPUT);
+  pinMode(Emergency_SW, INPUT);
+  pinMode(ON_OFF_Switch, INPUT);
+
+  digitalWrite(GREEN_LED,LOW); 
+  digitalWrite(RED_LED,HIGH); 
+
+  pinMode(SW_1, INPUT);
+  pinMode(SW_2, INPUT);
+  pinMode(SW_3, INPUT);
+  lcd.begin();
+  lcd.clear();
+  lcd.setCursor(0,0); 
+  lcd.print("SM_ARU...");
+  lcd.setCursor(0,1); 
+  lcd.print(" Vehical System");
+  delay(2000);
+  buttonState_2 = digitalRead(SW_2);   
+    if(buttonState_2==LOW)
+    {
+      lcd.clear();
+      delay(2000);
+      while(normal==0)
+      {
+        lcd.setCursor(0,0); 
+        lcd.print("Press S1> Enroll");
+        lcd.setCursor(0,1); 
+        lcd.print("Press S2> Normal");
+        buttonState_1 = digitalRead(SW_1);    
+        if(buttonState_1==LOW)
+        {system_enroll_process();}
+        
+        buttonState_2 = digitalRead(SW_2);   
+        if(buttonState_2==LOW)
+        {normal=1;lcd.clear();delay(2000);}  
+        
+        buttonState_3 = digitalRead(SW_3);   
+        if(buttonState_3==LOW)
+       {f_erase();} 
+       }
+     }
+  lcd.clear();
+}
+void loop()
+{
+ 
+    Engine_start_process();
+    while(engine_start==true)
+    {
+      sensor_status_read(); 
+    }
+}
+
+
+void sensor_status_read()
+{
+  lcd.clear();
+  GPS_data();
+  lcd.clear();
+  shock_read();
+  Fire_read();
+  gas_read();
+  alcohol_read();
+  Speed_read();
+  Emergency_read();
+  sensor_data_update();
+}
+
+void Speed_read()
+{
+  int speed_1=0;
+  if (engine_start == true)
+  {
+    Speed_sensor_value=analogRead(Speed_sensor);
+    Speed_sensor_value = map(Speed_sensor_value, 0, 1023, 0,9);
+    speed_1=Speed_sensor_value*20;
+    lcd.setCursor(0,1);
+    lcd.print("Speed: ");
+    lcd.print(speed_1);
+    lcd.print("Km/h"  );
+  }
+  else
+  {
+    lcd.setCursor(0,1);
+    Speed_sensor_value=0;
+    lcd.print("Speed: ");
+    lcd.print(Speed_sensor_value);
+    lcd.print("Km/h"  );
+  }
+
+  delay(1000);
+}
+
+void Fire_read()
+{
+  int buttonState = 0; 
+  buttonState = digitalRead(Fire_sensor);
+  if (buttonState == HIGH) Fire = false;
+  if (buttonState == LOW) Fire = true;  
+
+}
+
+void shock_read()
+{
+  int buttonState = 0; 
+  buttonState = digitalRead(Shock_sensor);
+  if (buttonState == HIGH) Accident = false;
+  if (buttonState == LOW) Accident = true;  
+
+}
+
+void gas_read()
+{
+  int buttonState = 0; 
+  buttonState = digitalRead(Gas_Sensor);
+  if (buttonState == HIGH) Gas = false;
+  if (buttonState == LOW) Gas = true;  
+}
+
+void alcohol_read()
+{
+  int buttonState = 0; 
+  buttonState = digitalRead(Alcohol_sensor);
+  if (buttonState == HIGH) Alcohol = false;
+  if (buttonState == LOW) Alcohol = true;  
+}
+
+void Emergency_read()
+{
+  int buttonState = 0; 
+  buttonState = digitalRead(Emergency_SW);
+  if (buttonState == HIGH) Emergency = false;
+  if (buttonState == LOW) Emergency = true;  
+}
+
+void GPS_data()
+{
+  while(i<=1000)
+  {
+    if (Serial.available())
+    {
+      gps.encode(Serial.read());
+    }
+
+    lcd.setCursor(0,0);
+    lcd.print(i);
+    i++;
+  }
+  if (gps.location.isUpdated())
+  {
+    i=700;
+    lcd.setCursor(0,0);
+    lcd.print("Lat: ");
+    //lcd.print(gps.location.lat(),6);
+    lcd.print(gps.location.lat(),6); 
+    //lcd.print(SM_ARU_LAT);
+    lcd.setCursor(0,1);
+    lcd.print("Log: ");
+    lcd.print(gps.location.lng(),6);
+    delay(1000);
+    Serial.print('@');
+    Serial.print("LAT: ");
+    Serial.print(gps.location.lat(),6); 
+    Serial.print("LOG: ");
+    Serial.print(gps.location.lng(),6);
+    Serial.println('*');
+    lcd.clear();   
+  }
+  else 
+    i=0;
+}
+
+void Emergency_Mode()
+{
+  lcd.setCursor(0,1);
+  lcd.print("Emergency Mode     ");   
+  digitalWrite(GREEN_LED,HIGH); 
+  digitalWrite(RED_LED,LOW);
+  Emergency = true;
+  //GPS_data();
+}
+
+void sensor_data_update()
+{   
+  if (Gas == true)
+  {
+    lcd.setCursor(0,1);
+    lcd.print("Gas Leackage Detect ");   
+    digitalWrite(GREEN_LED,HIGH); 
+    digitalWrite(RED_LED,LOW);
+    delay(500);
+  }
+
+  if (Alcohol == true)
+  {
+    lcd.setCursor(0,1);
+    lcd.print("Alcohol Detect      ");
+    digitalWrite(GREEN_LED,HIGH); 
+    digitalWrite(RED_LED,LOW);
+    delay(500);
+  }
+
+  if (Accident == true)
+  {
+    lcd.setCursor(0,1);
+    lcd.print("Accident Detect     "); 
+    digitalWrite(GREEN_LED,HIGH); 
+    digitalWrite(RED_LED,LOW);
+    delay(500);
+  }
+
+  if (Fire == true)
+  {
+    lcd.setCursor(0,1);
+    lcd.print("Fire Detect         "); 
+    digitalWrite(GREEN_LED,HIGH); 
+    digitalWrite(RED_LED,LOW);
+    delay(500);
+  }
+
+  if (Emergency == true)
+  {
+    lcd.setCursor(0,1);
+    lcd.print("Emergency !!!!!     "); 
+    digitalWrite(GREEN_LED,HIGH); 
+    digitalWrite(RED_LED,LOW);  
+    delay(500);  
+  }
+
+  if(Emergency==false && Accident==false && Alcohol==false && Gas==false && Fire==false)
+  {
+    lcd.setCursor(0,1);
+    lcd.print("System is Normal    ");
+    digitalWrite(GREEN_LED,LOW); 
+    digitalWrite(RED_LED,HIGH);
+    delay(500);
+  }
+
+  Serial.print('$');
+  if (Gas == true)Serial.print('G');
+  if (Gas == false)Serial.print('g');
+
+  if (Fire == true)Serial.print('F');
+  if (Fire == false)Serial.print('f');
+
+  if (Alcohol == true)Serial.print('D');
+  if (Alcohol == false)Serial.print('d');
+
+  if (Accident == true)Serial.print('A');
+  if (Accident == false)Serial.print('a');
+
+  if (Emergency == true)Serial.print('E');
+  if (Emergency == false)Serial.print('e');
+
+  if (engine_start == true)Serial.print('S');
+  if (engine_start == false)Serial.print('s');
+  Serial.print(Speed_sensor_value);
+  Serial.println('*');
+
+}
+
+
+////////////////////////////////   finger print  /////////////////////////////
+void system_enroll_process()
+{
+  //    Serial.println("Type in the ID # you want to save this finger as...");
+  //   Serial.println("Place finger on Sensor");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("  Place Finger  ");
+  lcd.setCursor(0, 1);
+  lcd.print("    On Sensor    ");
+  delay(2000);
+  e++;
+  int id = 0;      
+  id *= 10;
+  id += e;
+  //Serial.print("User ID #");
+  //Serial.println(id);
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(" For User_");
+  lcd.print(id);
+  lcd.setCursor(0, 1);
+  lcd.print("Finger Register");
+  delay(2000);
+  getFingerprintEnroll(id);
+
+}
+
+
+int getFingerprintEnroll(int id) 
+{
+  int p = -1;
+  //Serial.println("Waiting for valid finger to enroll");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("  Waiting For   ");
+  lcd.setCursor(0, 1);
+  lcd.print("  Valid Finger  ");
+  delay(1000);
+  while (p != FINGERPRINT_OK) 
+  {
+    p = finger.getImage();
+    switch (p) 
+    {
+    case FINGERPRINT_OK:
+      //  Serial.println("Image taken");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("  Image taken   ");
+      delay(500);
+      break;
+    case FINGERPRINT_NOFINGER:
+      //Serial.println(".");
+      delay(500);
+      break;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      //Serial.println("Communication error");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(" Communication  ");
+      lcd.setCursor(0, 1);
+      lcd.print("     Error      ");
+      delay(500);
+      break;
+    case FINGERPRINT_IMAGEFAIL:
+      //Serial.println("Imaging error");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(" Imaging Error  ");
+      delay(500);
+      break;
+    default:
+      //Serial.println("Unknown error");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(" Unknown Error  ");
+      delay(500);
+      break;
+    }
+  }
+  // OK success! //
+  p = finger.image2Tz(1);
+  switch (p) 
+  {
+  case FINGERPRINT_OK:
+    //Serial.println("Image converted");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Image Converted ");
+    delay(500);
+    break;
+  case FINGERPRINT_IMAGEMESS:
+    //Serial.println("Image too messy");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Image too Messy ");
+    delay(500);
+    return p;
+  case FINGERPRINT_PACKETRECIEVEERR:
+    //Serial.println("Communication error");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Communication  ");
+    lcd.setCursor(0, 1);
+    lcd.print("     Error      ");
+    delay(500);
+    return p;
+  case FINGERPRINT_FEATUREFAIL:
+    //Serial.println("Could not find fingerprint features");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Could not Find ");
+    lcd.setCursor(0, 1);
+    lcd.print("    Features    ");
+    delay(500);
+    return p;
+  case FINGERPRINT_INVALIDIMAGE:
+    //Serial.println("Could not find fingerprint features");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Could not Find ");
+    lcd.setCursor(0, 1);
+    lcd.print("    Features    ");
+    delay(500);
+    return p;
+  default:
+    //Serial.println("Unknown error");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Unknown Error  ");
+    delay(500);
+    return p;
+  }
+  //Serial.println("Remove finger");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(" Remove Finger  ");
+  delay(2000);
+  p = 0;
+  while (p != FINGERPRINT_NOFINGER) 
+  {
+    p = finger.getImage();
+  }
+  p = -1;
+  //Serial.println("Place same finger again");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("   Place Same   ");
+  lcd.setCursor(0, 1);
+  lcd.print("  Finger Again  ");
+  delay(500);
+  while (p != FINGERPRINT_OK) 
+  {
+    p = finger.getImage();
+    switch (p) 
+    {
+    case FINGERPRINT_OK:
+      //  Serial.println("Image taken");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("  Image Taken   ");
+      delay(500);
+      break;
+    case FINGERPRINT_NOFINGER:
+      //Serial.print(".");
+      break;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      //Serial.println("Communication error");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(" Communication  ");
+      lcd.setCursor(0, 1);
+      lcd.print("     Error      ");
+      delay(500);
+      break;
+    case FINGERPRINT_IMAGEFAIL:
+      //Serial.println("Imaging error");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(" Imaging Error  ");
+      delay(500);
+      break;
+    default:
+      //Serial.println("Unknown error");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(" Unknown Error  ");
+      delay(500);
+      break;
+    }
+  }
+  // OK success! //
+  p = finger.image2Tz(2);
+  switch (p) 
+  {
+  case FINGERPRINT_OK:
+    //Serial.println("Image converted");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Image Converted ");
+    delay(500);
+    break;
+  case FINGERPRINT_IMAGEMESS:
+    //Serial.println("Image too messy");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Image too Messy ");
+    delay(500);
+    return p;
+  case FINGERPRINT_PACKETRECIEVEERR:
+    //Serial.println("Communication error");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Communication  ");
+    lcd.setCursor(0, 1);
+    lcd.print("     Error      ");
+    delay(500);
+    return p;
+  case FINGERPRINT_FEATUREFAIL:
+    //Serial.println("Could not find fingerprint features");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Could not Find ");
+    lcd.setCursor(0, 1);
+    lcd.print("    Features    ");
+    delay(500);
+    return p;
+  case FINGERPRINT_INVALIDIMAGE:
+    //Serial.println("Could not find fingerprint features");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Could not Find ");
+    lcd.setCursor(0, 1);
+    lcd.print("    Features    ");
+    delay(500);
+    return p;
+  default:
+    //Serial.println("Unknown error");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Unknown Error  ");
+    delay(500);
+    return p;
+  }
+  // OK converted! //
+  p = finger.createModel();
+  if (p == FINGERPRINT_OK) 
+  {
+    //Serial.println("Prints matched!");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Prints matched!!");
+    delay(500);
+  } 
+  else if (p == FINGERPRINT_PACKETRECIEVEERR) 
+  {
+    //Serial.println("Communication error");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Communication  ");
+    lcd.setCursor(0, 1);
+    lcd.print("     Error      ");
+    delay(500);
+    return p;
+  } 
+  else if (p == FINGERPRINT_ENROLLMISMATCH) 
+  {
+    //Serial.println("Fingerprints did not match");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("  Fingerprints  ");
+    lcd.setCursor(0, 1);
+    lcd.print(" did Not Match  ");
+    e--;
+    digitalWrite(GREEN_LED, HIGH);
+    digitalWrite(RED_LED, LOW);
+    delay(1500);
+    digitalWrite(GREEN_LED, HIGH);
+    digitalWrite(RED_LED, HIGH);
+    return p;
+  } 
+  else 
+  {
+    //Serial.println("Unknown error");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Unknown Error  ");
+    delay(500);
+    return p;
+  }   
+  //Serial.print("ID "); Serial.println(id);
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("User ");
+  lcd.print(id);
+  lcd.print(" Finger ");
+  p = finger.storeModel(id);
+  if (p == FINGERPRINT_OK) 
+  {
+    //Serial.println("StoRED_LED!");
+    lcd.setCursor(0, 1);
+    lcd.print(" Print StoRED_LED");
+    delay(500);  
+    digitalWrite(GREEN_LED, LOW);
+    digitalWrite(RED_LED, HIGH);
+    delay(1000);
+    digitalWrite(GREEN_LED, HIGH);
+    digitalWrite(RED_LED, HIGH);
+    return 0;
+  } 
+  else if (p == FINGERPRINT_PACKETRECIEVEERR) 
+  {
+    //Serial.println("Communication error");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Communication  ");
+    lcd.setCursor(0, 1);
+    lcd.print("     Error      ");
+    delay(500);
+    return p;
+  } 
+  else if (p == FINGERPRINT_BADLOCATION) 
+  {
+    //Serial.println("Could not store in that location");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Could Not Store ");
+    lcd.setCursor(0, 1);
+    lcd.print(" In That Location");
+    delay(1000);
+    return p;
+  } 
+  else if (p == FINGERPRINT_FLASHERR) 
+  {
+    //Serial.println("Error writing to flash");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("  Error While Writing  ");
+    lcd.setCursor(0, 1);
+    lcd.print("Writing To Flash    ");
+    delay(1000);
+    return p;
+  } 
+  else 
+  {
+    //Serial.println("Unknown error");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Unknown Error  ");
+    delay(1000);
+    return p;
+  }   
+}
+
+/////////// Search section //////////
+
+int getFingerprintID() 
+{
+  int p = -1;
+  //Serial.println("Waiting for a finger...");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("  Waiting For   ");
+  lcd.setCursor(0, 1);
+  lcd.print("  Valid User  ");
+  delay(1000);
+  while (p != FINGERPRINT_OK)
+  {
+    p = finger.getImage();
+    switch (p) 
+    {
+    case FINGERPRINT_OK:
+      //  Serial.println("Image taken");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("  Image taken   ");
+      delay(500);
+      break;
+    case FINGERPRINT_NOFINGER:
+      // Serial.println(".");
+      delay(500);
+      break;
+    case FINGERPRINT_PACKETRECIEVEERR:
+      // Serial.println("Communication error");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(" Communication  ");
+      lcd.setCursor(0, 1);
+      lcd.print("     Error      ");
+      delay(500);
+      break;
+    case FINGERPRINT_IMAGEFAIL:
+      // Serial.println("Imaging error");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(" Imaging Error  ");
+      delay(500);
+      break;
+    default:
+      // Serial.println("Unknown error");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(" Unknown Error  ");
+      delay(500);
+      break;
+    }
+  }
+
+  // OK success! //
+
+  p = finger.image2Tz();
+  switch (p) 
+  {
+  case FINGERPRINT_OK:
+    // Serial.println("Image converted");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Image Converted ");
+    delay(500);
+    break;
+  case FINGERPRINT_IMAGEMESS:
+    // Serial.println("Image too messy");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Image too Messy ");
+    delay(500);
+    return p;
+  case FINGERPRINT_PACKETRECIEVEERR:
+    //  Serial.println("Communication error");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Communication  ");
+    lcd.setCursor(0, 1);
+    lcd.print("     Error      ");
+    delay(500);
+    return p;
+  case FINGERPRINT_FEATUREFAIL:
+    //  Serial.println("Could not find fingerprint features");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Could not Find ");
+    lcd.setCursor(0, 1);
+    lcd.print("    Features    ");
+    delay(500);
+    return p;
+  case FINGERPRINT_INVALIDIMAGE:
+    //  Serial.println("Could not find fingerprint features");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Could not Find ");
+    lcd.setCursor(0, 1);
+    lcd.print("    Features    ");
+    delay(500);
+    return p;
+  default:
+    //  Serial.println("Unknown error");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Unknown Error  ");
+    delay(500);
+    return p;
+  }
+  // Serial.println("Remove finger...");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(" Remove Finger  ");
+
+  delay(500);
+  while (p != FINGERPRINT_NOFINGER)
+  {
+    p = finger.getImage();
+  }
+  //Serial.println();
+
+  // OK converted! //
+
+  p = finger.fingerFastSearch();
+  if (p == FINGERPRINT_OK) 
+  {
+    //Serial.println("Found a print match!");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Found a Match ");
+    lcd.setCursor(0, 1);
+    lcd.print(" Finger Print!  ");
+
+    digitalWrite(GREEN_LED, LOW);
+    digitalWrite(RED_LED, HIGH);
+    delay(500);
+    digitalWrite(GREEN_LED, HIGH);
+    digitalWrite(RED_LED, HIGH);
+  } 
+  else if (p == FINGERPRINT_PACKETRECIEVEERR) 
+  {
+    //Serial.println("Communication error");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Communication  ");
+    lcd.setCursor(0, 1);
+    lcd.print("     Error      ");
+    delay(500);
+    return p;
+  } 
+  else if (p == FINGERPRINT_NOTFOUND) 
+  {
+    //Serial.println("Did not find a match");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("  Fingerprints  ");
+    lcd.setCursor(0, 1);
+    lcd.print(" Didn't Match");
+
+    digitalWrite(GREEN_LED, HIGH);
+    digitalWrite(RED_LED, LOW);
+    delay(500);
+    digitalWrite(GREEN_LED, HIGH);
+    digitalWrite(RED_LED, HIGH);
+    FINGERPRINT_NOT_FOUND=1;
+    return p;
+  } 
+  else 
+  {
+    //Serial.println("Unknown error");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print(" Unknown Error  ");
+    delay(500);
+    return p;
+  }   
+
+  // found a match! //
+
+  //  Serial.print("Found ID #"); 
+  //  Serial.print(finger.fingerID); 
+  //  Serial.print(" with confidence of "); 
+  //  Serial.println(finger.confidence); 
+  FINGERPRINT_NOT_FOUND=0;
+  delay(1000);
+
+  if(FINGERPRINT_NOT_FOUND==0)
+  {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("User ");
+    lcd.print(finger.fingerID);
+
+    digitalWrite(GREEN_LED, LOW);
+    digitalWrite(RED_LED, HIGH);
+    delay(1500);
+    digitalWrite(GREEN_LED, HIGH);
+    digitalWrite(RED_LED, HIGH);
+  }
+  else if(FINGERPRINT_NOT_FOUND==1)
+  {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("   No  database   ");
+    lcd.setCursor(0, 1);
+    lcd.print("      stoRED_LED      ");
+
+    digitalWrite(GREEN_LED, HIGH);
+    digitalWrite(RED_LED, LOW);
+    delay(500);
+    digitalWrite(GREEN_LED, HIGH);
+  }
+}
+
+
+////////// Erase section //////////
+
+void f_erase()
+{
+  int p = -1;
+  while (p != FINGERPRINT_OK)
+  {
+    p = finger.emptyDatabase();
+    if (p == FINGERPRINT_OK)
+    {
+      //  Serial.println("Database Empty!");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Database Clear!!");
+
+      digitalWrite(GREEN_LED, LOW);
+      digitalWrite(RED_LED, HIGH);
+      delay(500);
+      digitalWrite(RED_LED, HIGH);
+      digitalWrite(GREEN_LED, HIGH);
+    }
+    else if (p == FINGERPRINT_PACKETRECIEVEERR) 
+    {
+      //Serial.print("Communication error!");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print(" Communication  ");
+      lcd.setCursor(0, 1);
+      lcd.print("     Error      ");
+      delay(2000);
+    }
+    else if (p == FINGERPRINT_DBCLEARFAIL) 
+    {
+      //Serial.println("Could not clear database!");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("   Could not    ");
+      lcd.setCursor(0, 1);
+      lcd.print("clear database!!");
+
+      digitalWrite(GREEN_LED, HIGH);
+      digitalWrite(RED_LED, LOW);
+      delay(1500);
+      digitalWrite(GREEN_LED, HIGH);
+    }
+  }
+}
+
+void Engine_start_process()
+{
+  while(engine_start==false)
+  {
+    digitalWrite(GREEN_LED, HIGH);
+    digitalWrite(RED_LED, HIGH);
+    lcd.setCursor(0,0); 
+    lcd.print("Press S2> Search   ");
+    lcd.setCursor(0,1); 
+    lcd.print("To Start Vehical");
+    buttonState_2 = digitalRead(SW_2);   
+    if(buttonState_2==LOW)
+    {
+      getFingerprintID();
+
+      if(FINGERPRINT_NOT_FOUND==0)
+      {
+        digitalWrite(GREEN_LED, LOW);
+        digitalWrite(RED_LED, HIGH);
+        lcd.clear();
+        lcd.print("    Valid User");
+        delay(1000);
+        lcd.setCursor(0,1);
+        lcd.print(" Vehical Start");
+        delay(1000);
+        lcd.clear();
+        engine_start=true;
+      }
+
+      else if(FINGERPRINT_NOT_FOUND==1)
+      {
+        lcd.clear();
+        lcd.print("  Invalid User");
+        digitalWrite(GREEN_LED, HIGH);
+        digitalWrite(RED_LED, LOW);
+        engine_start=false;
+        delay(1000);
+        lcd.clear();
+      }
+    }  
+  }
+}
